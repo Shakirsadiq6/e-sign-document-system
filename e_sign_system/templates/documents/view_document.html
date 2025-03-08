@@ -1,0 +1,83 @@
+{% extends 'documents/base.html' %}
+
+{% block title %}View Document - Document Signing System{% endblock %}
+
+{% block extra_css %}
+<style>
+    .document-container {
+        border: 1px solid #ddd;
+        padding: 20px;
+        min-height: 500px;
+        background-color: #f9f9f9;
+        position: relative;
+    }
+    .signature-mark {
+        position: absolute;
+        border: 2px dashed #007bff;
+        padding: 10px;
+        background-color: rgba(0, 123, 255, 0.1);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+{% if is_temp_access %}
+<div class="alert alert-info">
+    <h4>Document Signing Request</h4>
+    <p>You've been asked to review and sign this document.</p>
+</div>
+{% endif %}
+
+<div class="card">
+    <div class="card-header">
+        <h3>{{ document.filename }}</h3>
+    </div>
+    <div class="card-body">
+        <div class="row mb-3">
+            <div class="col">
+                <strong>Status:</strong> 
+                <span class="badge {% if document.status == 'pending' %}bg-warning{% elif document.status == 'signed' %}bg-success{% else %}bg-primary{% endif %}">
+                    {{ document.status|title }}
+                </span>
+            </div>
+            <div class="col">
+                <strong>Upload Date:</strong> {{ document.upload_date }}
+            </div>
+            {% if document.signed_date %}
+            <div class="col">
+                <strong>Signed Date:</strong> {{ document.signed_date }}
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="document-container">
+            {% if document.file.name.endswith('.pdf') %}
+                <embed src="{{ document.file.url }}" type="application/pdf" width="100%" height="600px">
+            {% else %}
+                <img src="{{ document.file.url }}" alt="Document" class="img-fluid">
+            {% endif %}
+            
+            {% for signature in document.signatures.all %}
+                <div class="signature-mark" style="left: {{ signature.position_x }}px; top: {{ signature.position_y }}px;">
+                    {% if signature.type == 'type' %}
+                        <span>{{ signature.data|slice:"5:" }}</span>
+                    {% else %}
+                        <img src="data:image/png;base64,{{ signature.data }}" alt="Signature">
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="mt-3">
+            {% if document.status == 'pending' %}
+                <a href="{% url 'documents:sign' document.id %}" class="btn btn-primary">Sign Document</a>
+            {% elif document.status == 'signed' and not is_temp_access %}
+                <a href="{% url 'documents:submit' document.id %}" class="btn btn-success">Submit Document</a>
+            {% endif %}
+            {% if document.signed_file %}
+                <a href="{{ document.signed_file.url }}" class="btn btn-info" download>Download Signed Document</a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

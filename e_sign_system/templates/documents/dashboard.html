@@ -1,0 +1,60 @@
+{% extends 'documents/base.html' %}
+
+{% block title %}Dashboard - Document Signing System{% endblock %}
+
+{% block content %}
+<h2>Welcome, {{ request.user.email }}</h2>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h3>Your Documents</h3>
+            </div>
+            <div class="card-body">
+                {% if documents %}
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Document Name</th>
+                                <th>Status</th>
+                                <th>Upload Date</th>
+                                <th>Signed Date</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for doc in documents %}
+                                <tr>
+                                    <td>{{ doc.filename }}</td>
+                                    <td>
+                                        {% if doc.status == 'pending' %}
+                                            <span class="badge bg-warning">Pending</span>
+                                        {% elif doc.status == 'signed' %}
+                                            <span class="badge bg-success">Signed</span>
+                                        {% elif doc.status == 'submitted' %}
+                                            <span class="badge bg-primary">Submitted</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ doc.upload_date }}</td>
+                                    <td>{{ doc.signed_date|default:'Not signed yet' }}</td>
+                                    <td>
+                                        <a href="{% url 'documents:view' doc.id %}" class="btn btn-sm btn-info">View</a>
+                                        {% if doc.status == 'pending' %}
+                                            <a href="{% url 'documents:sign' doc.id %}" class="btn btn-sm btn-success">Sign</a>
+                                        {% elif doc.status == 'signed' %}
+                                            <a href="{% url 'documents:submit' doc.id %}" class="btn btn-sm btn-primary">Submit</a>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                {% else %}
+                    <p>No documents available.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

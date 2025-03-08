@@ -1,0 +1,104 @@
+{% extends 'documents/base.html' %}
+
+{% block title %}Sign Document - Document Signing System{% endblock %}
+
+{% block extra_css %}
+<style>
+    .document-preview {
+        border: 1px solid #ddd;
+        margin-bottom: 20px;
+        max-height: 500px;
+        overflow-y: auto;
+    }
+    #signatureCanvas {
+        border: 1px solid #ccc;
+        background-color: white;
+    }
+    .signature-options {
+        margin-bottom: 20px;
+    }
+    .signature-type {
+        margin-bottom: 15px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+{% if is_temp_access %}
+<div class="alert alert-info">
+    <h4>Document Signing Request</h4>
+    <p>You've been asked to sign this document. Please review it carefully before signing.</p>
+</div>
+{% endif %}
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h3>{{ document.filename }}</h3>
+            </div>
+            <div class="card-body">
+                <div class="document-preview">
+                    {% if preview_image %}
+                        <img src="data:image/png;base64,{{ preview_image }}" alt="Document Preview" class="img-fluid">
+                    {% else %}
+                        <embed src="{{ document.file.url }}" type="application/pdf" width="100%" height="500px">
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h4>Add Your Signature</h4>
+            </div>
+            <div class="card-body">
+                <form method="POST" enctype="multipart/form-data" id="signatureForm">
+                    {% csrf_token %}
+                    {{ form.position_x }}
+                    {{ form.position_y }}
+                    
+                    <div class="signature-options">
+                        <div class="signature-type">
+                            <input type="radio" name="signature_type" value="draw" id="typeDraw" checked>
+                            <label for="typeDraw">Draw Signature</label>
+                        </div>
+                        <div class="signature-type">
+                            <input type="radio" name="signature_type" value="type" id="typeText">
+                            <label for="typeText">Type Signature</label>
+                        </div>
+                        <div class="signature-type">
+                            <input type="radio" name="signature_type" value="upload" id="typeUpload">
+                            <label for="typeUpload">Upload Signature</label>
+                        </div>
+                    </div>
+
+                    <div id="drawSignature">
+                        <canvas id="signatureCanvas" width="400" height="200"></canvas>
+                        <button type="button" class="btn btn-secondary btn-sm mt-2" onclick="clearCanvas()">Clear</button>
+                    </div>
+
+                    <div id="typeSignature" style="display: none;">
+                        <input type="text" class="form-control" name="signature_text" placeholder="Type your signature">
+                    </div>
+
+                    <div id="uploadSignature" style="display: none;">
+                        <input type="file" class="form-control" name="signature_file" accept="image/*">
+                    </div>
+
+                    <button type="submit" class="btn btn-primary mt-3">Sign Document</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Add your JavaScript for signature handling here
+    // (Canvas drawing, signature type switching, etc.)
+</script>
+{% endblock %}
