@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign Document - Document Signing System</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css">
+    <style>
+        .document-container {
+            border: 1px solid #ddd;
+            padding: 20px;
+            min-height: 500px;
+            background-color: #f9f9f9;
+            position: relative;
+            cursor: crosshair;
+        }
+        #signature-canvas {
+            border: 1px solid #000;
+            background-color: #fff;
+        }
+        .signature-mark {
+            position: absolute;
+            border: 2px dashed #007bff;
+            padding: 5px;
+            background-color: rgba(0, 123, 255, 0.1);
+        }
+        .signature-preview {
+            max-width: 200px;
+            max-height: 100px;
+            border: 1px solid #ddd;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    {% if not is_temp_access %}
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="#">Document Signing System</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('index') }}">Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('logout') }}">Logout</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+    {% else %}
+    <div class="container mt-3">
+        <div class="alert alert-info">
+            <h4>Document Signing Request</h4>
+            <p>You've been asked to sign this document. Please review it carefully before signing.</p>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="container mt-4">
+        <h2>Sign Document: {{ document.filename }}</h2>
+        
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="alert alert-danger">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
+        <div class="row mt-4">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Document Preview</h3>
+                        <p class="text-muted mb-0">Click on the document where you want to place your signature</p>
+                    </div>
+                    <div class="card-body">
+                        <div class="document-container" id="document-container">
+                            {% if preview_image %}
+                                <img src="data:image/png;base64,{{ preview_image }}" alt="Document Preview" style="max-width: 100%; height: auto;">
+                            {% else %}
+                                <!-- Fallback if no preview is available -->
+                                <h4 class="text-center">Document Preview</h4>
+                                <p class="text-center text-muted">This is a simplified preview of {{ document.filename }}</p>
+                            {% endif %}
+                            
+                            <!-- Signature placeholder will be added dynamically -->
+                            <div id="signature-placeholder" class="signature-mark" style="display: none;">
+                                <img id="signature-preview-img" class="signature-preview" src="" alt="Signature">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Signature Options</h3>
+                    </div>
+                    <div class="card-body">
+                        <form id="signature-form" method="POST">
+                            <input type="hidden" id="position_x" name="position_x" value="0">
+                            <input type="hidden" id="position_y" name="position_y" value="0">
+                            
+                            <div class="mb-3">
+                                <label class="form-label">Signature Type</label>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="signature_type" id="type-draw" value="draw" checked>
+                                    <label class="form-check-label" for="type-draw">
+                                        Draw Signature
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="signature_type" id="type-type" value="type">
+                                    <label class="form-check-label" for="type-type">
+                                        Type Signature
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="signature_type" id="type-upload" value="upload">
+                                    <label class="form-check-label" for="type-upload">
+                                        Upload Signature
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <!-- Draw Signature -->
+                            <div id="draw-container" class="signature-option">
+                                <canvas id="signature-canvas" width="300" height="150"></canvas>
+                                <div class="mt-2">
+                                    <button type="button" class="btn btn-sm btn-secondary" id="clear-canvas">Clear</button>
+                                </div>
+                                <input type="hidden" id="signature_data" name="signature_data">
+                            </div>
+                            
+                            <!-- Type Signature -->
+                            <div id="type-container" class="signature-option" style="display: none;">
+                                <div class="mb-3">
+                                    <label for="signature_text" class="form-label">Type your signature</label>
+                                    <input type="text" class="form-control" id="signature_text" name="signature_text">
+                                </div>
+                            </div>
+                            
+                            <!-- Upload Signature -->
+                            <div id="upload-container" class="signature-option" style="display: none;">
+                                <div class="mb-3">
+                                    <label for="signature_file" class="form-label">Upload signature image</label>
+                                    <input type="file" class="form-control" id="signature_file" name="signature_file" accept="image/*">
+                                </div>
+                            </div>
+                            
+                            <div class="mt-3">
+                                <button type="submit" class="btn btn-primary">Sign Document</button>
+                                <a href="{{ url_for('view_document', document_id=document.id) }}" class="btn btn-secondary">Cancel</a>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Add this at the beginning of the script
+        const signaturePlaceholder = document.getElementById('signature-placeholder');
+        const canvas = document.getElementById('signature-canvas');
+        const ctx = canvas.getContext('2d');
+        const signatureDataInput = document.getElementById('signature_data');
+        const clearButton = document.getElementById('clear-canvas');
+        const signaturePreviewImg = document.getElementById('signature-preview-img');
+        
+        // Add click handler for document container
+        const documentContainer = document.getElementById('document-container');
+        documentContainer.addEventListener('click', function(e) {
+            const rect = documentContainer.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            // Round the coordinates before setting them
+            document.getElementById('position_x').value = Math.round(x);
+            document.getElementById('position_y').value = Math.round(y);
+            
+            // Show and position the signature placeholder
+            signaturePlaceholder.style.display = 'block';
+            signaturePlaceholder.style.left = Math.round(x) + 'px';
+            signaturePlaceholder.style.top = Math.round(y) + 'px';
+        });
+
+        let isDrawing = false;
+        
+        // Set up canvas for better signature quality
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = '#000000';
+        
+        // Clear canvas initially
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', stopDrawing);
+        canvas.addEventListener('mouseout', stopDrawing);
+        
+        // Also support touch events for mobile
+        canvas.addEventListener('touchstart', handleTouch);
+        canvas.addEventListener('touchmove', handleTouch);
+        canvas.addEventListener('touchend', stopDrawing);
+        
+        function handleTouch(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const mouseEvent = new MouseEvent(
+                e.type === 'touchstart' ? 'mousedown' : 'mousemove', 
+                {
+                    clientX: touch.clientX,
+                    clientY: touch.clientY
+                }
+            );
+            canvas.dispatchEvent(mouseEvent);
+        }
+        
+        function startDrawing(e) {
+            isDrawing = true;
+            ctx.beginPath();
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            ctx.moveTo(x, y);
+        }
+        
+        function draw(e) {
+            if (!isDrawing) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            ctx.lineTo(x, y);
+            ctx.stroke();
+        }
+        
+        function stopDrawing() {
+            if (isDrawing) {
+                ctx.closePath();
+                isDrawing = false;
+                
+                // Save signature data
+                signatureDataInput.value = canvas.toDataURL('image/png');
+                signaturePreviewImg.src = canvas.toDataURL('image/png');
+                signaturePlaceholder.innerHTML = '';
+                signaturePlaceholder.appendChild(signaturePreviewImg.cloneNode(true));
+            }
+        }
+        
+        clearButton.addEventListener('click', function() {
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            signatureDataInput.value = '';
+            signaturePreviewImg.src = '';
+        });
+    </script>
+</body>
+</html>
