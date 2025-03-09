@@ -11,7 +11,6 @@ urlpatterns = [
     path('view/<uuid:document_id>/', views.view_document, name='view'),
     path('sign/<uuid:document_id>/', views.sign_document, name='sign'),
     path('submit/<uuid:document_id>/', views.submit_document, name='submit'),
-    path('document/<uuid:document_id>/<str:access_token>/', 
-         views.direct_document_access, name='direct_access'),
+    path('document/<uuid:document_id>/<str:access_token>/', views.direct_document_access, name='direct_access'),
     path('thank-you/', views.thank_you, name='thank_you'),
 ]

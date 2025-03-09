@@ -9,16 +9,27 @@
         margin-bottom: 20px;
         max-height: 500px;
         overflow-y: auto;
+        position: relative;
+        cursor: crosshair;
     }
     #signatureCanvas {
         border: 1px solid #ccc;
         background-color: white;
+        cursor: crosshair;
     }
     .signature-options {
         margin-bottom: 20px;
     }
     .signature-type {
         margin-bottom: 15px;
+    }
+    #signaturePreview {
+        max-width: 150px;
+        height: 50px;
+        position: absolute;
+        display: none;
+        border: 2px dashed #007bff;
+        background-color: rgba(255, 255, 255, 0.8);
     }
 </style>
 {% endblock %}
@@ -38,13 +49,15 @@
                 <h3>{{ document.filename }}</h3>
             </div>
             <div class="card-body">
-                <div class="document-preview">
+                <div class="document-preview" id="documentPreview">
                     {% if preview_image %}
                         <img src="data:image/png;base64,{{ preview_image }}" alt="Document Preview" class="img-fluid">
                     {% else %}
                         <embed src="{{ document.file.url }}" type="application/pdf" width="100%" height="500px">
                     {% endif %}
+                    <div id="signaturePreview"></div>
                 </div>
+                <p class="text-muted mt-2">Click on the document where you want to place your signature</p>
             </div>
         </div>
     </div>
@@ -57,38 +70,45 @@
             <div class="card-body">
                 <form method="POST" enctype="multipart/form-data" id="signatureForm">
                     {% csrf_token %}
-                    {{ form.position_x }}
-                    {{ form.position_y }}
+                    <input type="hidden" name="position_x" id="position_x" value="0">
+                    <input type="hidden" name="position_y" id="position_y" value="0">
+                    <input type="hidden" name="signature_data" id="signature_data">
+                    <input type="hidden" name="signature_type" id="signature_type" value="draw">
                     
                     <div class="signature-options">
-                        <div class="signature-type">
-                            <input type="radio" name="signature_type" value="draw" id="typeDraw" checked>
-                            <label for="typeDraw">Draw Signature</label>
-                        </div>
-                        <div class="signature-type">
-                            <input type="radio" name="signature_type" value="type" id="typeText">
-                            <label for="typeText">Type Signature</label>
-                        </div>
-                        <div class="signature-type">
-                            <input type="radio" name="signature_type" value="upload" id="typeUpload">
-                            <label for="typeUpload">Upload Signature</label>
+                        <div class="btn-group w-100 mb-3" role="group">
+                            <input type="radio" class="btn-check" name="signature_method" id="typeDraw" checked>
+                            <label class="btn btn-outline-primary" for="typeDraw">Draw</label>
+
+                            <input type="radio" class="btn-check" name="signature_method" id="typeText">
+                            <label class="btn btn-outline-primary" for="typeText">Type</label>
+
+                            <input type="radio" class="btn-check" name="signature_method" id="typeUpload">
+                            <label class="btn btn-outline-primary" for="typeUpload">Upload</label>
                         </div>
                     </div>
 
                     <div id="drawSignature">
                         <canvas id="signatureCanvas" width="400" height="200"></canvas>
-                        <button type="button" class="btn btn-secondary btn-sm mt-2" onclick="clearCanvas()">Clear</button>
+                        <button type="button" class="btn btn-secondary btn-sm mt-2" id="clearCanvas">Clear</button>
                     </div>
 
                     <div id="typeSignature" style="display: none;">
-                        <input type="text" class="form-control" name="signature_text" placeholder="Type your signature">
+                        <div class="mb-3">
+                            <label for="signatureText" class="form-label">Type your signature</label>
+                            <input type="text" class="form-control" id="signatureText" placeholder="Type your signature here">
+                            <div class="form-text">Your signature will appear in a handwriting-style font</div>
+                        </div>
                     </div>
 
                     <div id="uploadSignature" style="display: none;">
-                        <input type="file" class="form-control" name="signature_file" accept="image/*">
+                        <div class="mb-3">
+                            <label for="signatureFile" class="form-label">Upload signature image</label>
+                            <input type="file" class="form-control" id="signatureFile" accept="image/*">
+                        </div>
                     </div>
 
-                    <button type="submit" class="btn btn-primary mt-3">Sign Document</button>
+                    <button type="submit" class="btn btn-primary mt-3 w-100">Sign Document</button>
                 </form>
             </div>
         </div>
@@ -98,7 +118,174 @@
 
 {% block extra_js %}
 <script>
-    // Add your JavaScript for signature handling here
-    // (Canvas drawing, signature type switching, etc.)
+    // Get DOM elements
+    const canvas = document.getElementById('signatureCanvas');
+    const ctx = canvas.getContext('2d');
+    const form = document.getElementById('signatureForm');
+    const documentPreview = document.getElementById('documentPreview');
+    const signaturePreview = document.getElementById('signaturePreview');
+    const positionX = document.getElementById('position_x');
+    const positionY = document.getElementById('position_y');
+    const drawDiv = document.getElementById('drawSignature');
+    const typeDiv = document.getElementById('typeSignature');
+    const uploadDiv = document.getElementById('uploadSignature');
+    const signatureText = document.getElementById('signatureText');
+    const signatureFile = document.getElementById('signatureFile');
+    const signatureTypeInput = document.getElementById('signature_type');
+    let isDrawing = false;
+    let lastX = 0;
+    let lastY = 0;
+
+    // Initialize canvas
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    clearCanvas();
+
+    // Canvas drawing functions
+    function startDrawing(e) {
+        isDrawing = true;
+        [lastX, lastY] = [e.offsetX, e.offsetY];
+    }
+
+    function draw(e) {
+        if (!isDrawing) return;
+        ctx.beginPath();
+        ctx.moveTo(lastX, lastY);
+        ctx.lineTo(e.offsetX, e.offsetY);
+        ctx.stroke();
+        [lastX, lastY] = [e.offsetX, e.offsetY];
+        updateSignaturePreview();
+    }
+
+    function stopDrawing() {
+        if (isDrawing) {
+            isDrawing = false;
+            updateSignaturePreview();
+        }
+    }
+
+    function clearCanvas() {
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        if (signaturePreview) {
+            signaturePreview.style.display = 'none';
+        }
+    }
+
+    // Document click handler
+    documentPreview.addEventListener('click', function(e) {
+        const rect = documentPreview.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        
+        positionX.value = Math.round(x);
+        positionY.value = Math.round(y);
+        
+        signaturePreview.style.left = x + 'px';
+        signaturePreview.style.top = y + 'px';
+        signaturePreview.style.display = 'block';
+        updateSignaturePreview();
+    });
+
+    // Signature type switching
+    document.querySelectorAll('input[name="signature_method"]').forEach(input => {
+        input.addEventListener('change', function() {
+            // Hide all signature inputs
+            drawDiv.style.display = 'none';
+            typeDiv.style.display = 'none';
+            uploadDiv.style.display = 'none';
+            
+            // Show selected input
+            const method = this.id.replace('type', '').toLowerCase();
+            if (method === 'text') {
+                typeDiv.style.display = 'block';
+                signatureTypeInput.value = 'type';
+                updateTypePreview();
+            } else if (method === 'draw') {
+                drawDiv.style.display = 'block';
+                signatureTypeInput.value = 'draw';
+                updateSignaturePreview();
+            } else if (method === 'upload') {
+                uploadDiv.style.display = 'block';
+                signatureTypeInput.value = 'upload';
+            }
+        });
+    });
+
+    // Update signature preview for typed signature
+    function updateTypePreview() {
+        if (!signatureText.value) {
+            signaturePreview.style.display = 'none';
+            return;
+        }
+        signaturePreview.style.display = 'block';
+        signaturePreview.innerHTML = `
+            <div style="font-family: 'Dancing Script', cursive; font-size: 24px; padding: 10px;">
+                ${signatureText.value}
+            </div>
+        `;
+        document.getElementById('signature_data').value = 'TEXT:' + signatureText.value;
+    }
+
+    // Update signature preview for drawn/uploaded signature
+    function updateSignaturePreview() {
+        const type = signatureTypeInput.value;
+        if (type === 'draw') {
+            signaturePreview.innerHTML = `<img src="${canvas.toDataURL()}" style="max-width: 100%; max-height: 100%;">`;
+            document.getElementById('signature_data').value = canvas.toDataURL();
+        }
+    }
+
+    // Event listeners
+    canvas.addEventListener('mousedown', startDrawing);
+    canvas.addEventListener('mousemove', draw);
+    canvas.addEventListener('mouseup', stopDrawing);
+    canvas.addEventListener('mouseout', stopDrawing);
+    document.getElementById('clearCanvas').addEventListener('click', clearCanvas);
+    
+    // Event listener for typed signature
+    signatureText.addEventListener('input', updateTypePreview);
+
+    // Event listener for uploaded signature
+    signatureFile.addEventListener('change', function() {
+        const file = this.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                signaturePreview.style.display = 'block';
+                signaturePreview.innerHTML = `<img src="${e.target.result}" style="max-width: 100%; max-height: 100%;">`;
+                document.getElementById('signature_data').value = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+    });
+
+    // Form submission
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        const type = signatureTypeInput.value;
+        
+        if (!positionX.value || !positionY.value) {
+            alert('Please click on the document where you want to place your signature');
+            return;
+        }
+        
+        if (type === 'draw' && !document.getElementById('signature_data').value) {
+            alert('Please draw your signature');
+            return;
+        } else if (type === 'type' && !signatureText.value) {
+            alert('Please type your signature');
+            return;
+        } else if (type === 'upload' && !signatureFile.files[0]) {
+            alert('Please upload a signature image');
+            return;
+        }
+        
+        this.submit();
+    });
 </script>
+
+<!-- Add Google Fonts for handwriting style -->
+<link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@400;700&display=swap" rel="stylesheet">
 {% endblock %}

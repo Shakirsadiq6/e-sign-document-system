@@ -143,5 +143,10 @@ SIGNED_FOLDER = os.path.join(MEDIA_ROOT, 'signed_documents')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(SIGNED_FOLDER, exist_ok=True)
 
+# Create directories if they don't exist
+os.makedirs(os.path.join(MEDIA_ROOT, 'documents'), exist_ok=True)
+os.makedirs(os.path.join(MEDIA_ROOT, 'signed_documents'), exist_ok=True)
+os.makedirs(os.path.join(MEDIA_ROOT, 'temp'), exist_ok=True)
+
 # Document link expiry days
 LINK_EXPIRY_DAYS = 7

@@ -8,8 +8,10 @@ from django.conf import settings
 from django.utils import timezone
 from django.urls import reverse
 from django.http import HttpResponse
+from django.core.files.base import ContentFile
 from .models import Document, Signature
 from .forms import DocumentUploadForm, SignatureForm
+from .utils import send_document_email, notify_document_signed, notify_document_submitted, overlay_signature_on_pdf
 import base64
 import io
 import fitz
@@ -17,7 +19,6 @@ from PIL import Image
 import tempfile
 import os
 import uuid
-
 
 def index(request):
     if not request.user.is_authenticated:
@@ -56,9 +57,9 @@ def upload_document(request):
             document = form.save(commit=False)
             document.sender = request.user
             document.save()
-            
+            recipient_email = form.cleaned_data['recipient_email']
             # Send email notification
-            send_document_email(document)
+            send_document_email(recipient_email, document)
             
             messages.success(request, 'Document uploaded and sent successfully')
             return redirect('documents:index')
@@ -86,53 +87,78 @@ def view_document(request, document_id):
 def sign_document(request, document_id):
     document = get_object_or_404(Document, id=document_id)
     
-    # Check permissions
+    # Check permissions - allow both authenticated users and temporary access
     if not has_document_access(request, document):
-        messages.error(request, 'Access denied')
-        return redirect('documents:login')
+        if 'temp_document_id' not in request.session:
+            messages.error(request, 'Access denied')
+            return redirect('documents:login')
     
     if request.method == 'POST':
-        form = SignatureForm(request.POST, request.FILES)
-        if form.is_valid():
-            signature = form.save(commit=False)
-            signature.document = document
-            signature.signer_email = request.user.email if request.user.is_authenticated else document.recipient_email
-            signature.save()
+        try:
+            signature_type = request.POST.get('signature_type')
+            signature_data = request.POST.get('signature_data')
+            position_x = int(request.POST.get('position_x', 0))
+            position_y = int(request.POST.get('position_y', 0))
+            
+            # Create signature
+            signature = Signature.objects.create(
+                document=document,
+                signer_email=request.user.email if request.user.is_authenticated else document.recipient_email,
+                type=signature_type,
+                data=signature_data,
+                position_x=position_x,
+                position_y=position_y,
+                timestamp=timezone.now()
+            )
             
             # Update document status
             document.status = 'signed'
             document.signed_date = timezone.now()
             
-            # Apply signature to PDF
-            if document.file.name.lower().endswith('.pdf'):
-                success = overlay_signature_on_pdf(document)
+            # Apply signature and create signed PDF
+            success = overlay_signature_on_pdf(document)
+            if not success:
+                messages.warning(request, 'There was an issue processing the signed PDF')
             
             document.save()
+            
+            # Verify the signed file exists and has .pdf extension
+            if document.signed_file and not document.signed_file.name.endswith('.pdf'):
+                old_path = document.signed_file.path
+                new_name = f"{document.signed_file.name}.pdf"
+                new_path = os.path.join(settings.MEDIA_ROOT, 'signed_documents', new_name)
+                os.rename(old_path, new_path)
+                document.signed_file.name = f"signed_documents/{new_name}"
+                document.save()
             
             # Notify sender
             notify_document_signed(document)
             
-            # Clear temporary access
+            # Clear temporary access and redirect
             if not request.user.is_authenticated:
                 request.session.flush()
                 return redirect('documents:thank_you')
             
             messages.success(request, 'Document signed successfully')
             return redirect('documents:index')
-    else:
-        form = SignatureForm()
-        
-        # Generate PDF preview if needed
-        preview_image = None
-        if document.file.name.lower().endswith('.pdf'):
-            preview_image = generate_pdf_preview(document)
+            
+        except Exception as e:
+            print(f"Error signing document: {e}")
+            messages.error(request, f'Error signing document: {str(e)}')
+            return redirect('documents:sign', document_id=document_id)
     
-    return render(request, 'documents/sign_document.html', {
+    # Generate PDF preview if needed
+    preview_image = None
+    if document.file.name.lower().endswith('.pdf'):
+        preview_image = generate_pdf_preview(document)
+    
+    context = {
         'document': document,
-        'form': form,
         'preview_image': preview_image,
         'is_temp_access': not request.user.is_authenticated
-    })
+    }
+    
+    return render(request, 'documents/sign_document.html', context)
 
 @login_required
 def submit_document(request, document_id):
@@ -168,10 +194,18 @@ def direct_document_access(request, document_id, access_token):
     request.session['temp_user_email'] = document.recipient_email
     request.session['temp_access_token'] = document.access_token
     
-    return render(request, 'documents/view_document.html', {
+    # Generate PDF preview if needed
+    preview_image = None
+    if document.file.name.lower().endswith('.pdf'):
+        preview_image = generate_pdf_preview(document)
+    
+    context = {
         'document': document,
+        'preview_image': preview_image,
         'is_temp_access': True
-    })
+    }
+    
+    return render(request, 'documents/view_document.html', context)
 
 def thank_you(request):
     return render(request, 'documents/thank_you.html')
@@ -183,8 +217,15 @@ def has_document_access(request, document):
         return (document.sender == request.user or 
                 document.recipient_email == request.user.email)
     else:
-        return (request.session.get('temp_document_id') == str(document.id) and
-                request.session.get('temp_access_token') == document.access_token)
+        # Check temporary access from session
+        temp_document_id = request.session.get('temp_document_id')
+        temp_access_token = request.session.get('temp_access_token')
+        temp_user_email = request.session.get('temp_user_email')
+        
+        return (temp_document_id == str(document.id) and
+                temp_access_token == document.access_token and
+                temp_user_email == document.recipient_email and
+                timezone.now() <= document.access_expiry)
 
 def generate_pdf_preview(document):
     """Generate a preview image for a PDF document"""
